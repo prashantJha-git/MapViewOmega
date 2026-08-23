@@ -42,8 +42,15 @@ export const HomeScreen: React.FC<HomeScreenProps> = ({
   // currentProfile being undefined.
   if (!currentProfile) {
     return (
-      <div className="flex items-center justify-center py-24 text-slate-400 text-sm animate-fadeIn">
-        Loading accessibility profiles…
+      <div className="space-y-6 pb-16 animate-fadeIn" aria-busy="true" aria-live="polite">
+        <span className="sr-only">Loading accessibility profiles…</span>
+        <div className="h-56 rounded-3xl skeleton-shimmer border border-slate-800/80" />
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-24 rounded-xl skeleton-shimmer border border-slate-800/80" />
+          ))}
+        </div>
+        <div className="h-40 rounded-2xl skeleton-shimmer border border-slate-800/80" />
       </div>
     );
   }

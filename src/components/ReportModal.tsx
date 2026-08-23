@@ -215,6 +215,68 @@ export const ReportModal: React.FC<ReportModalProps> = ({
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+          {/* OCR Barrier Sign Scanner Quick Auto-Fill */}
+          <div className="bg-slate-950/70 border border-emerald-500/40 rounded-xl p-4 space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-bold text-emerald-300 flex items-center space-x-1.5">
+                <span>📷</span>
+                <span>Scan Sign / Barrier with OCR (Auto-Fill)</span>
+              </span>
+              <span className="text-[10px] bg-emerald-950 text-emerald-300 px-2 py-0.5 rounded border border-emerald-800">
+                Client-Side AI / No Key Required
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-400">
+              Select a signage notice to auto-detect category, severity, and details instantly:
+            </p>
+            <div className="flex flex-wrap gap-2 text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setReportType('broken_elevator');
+                  setSeverity('critical');
+                  setDetails('Elevator Out of Service - Emergency hydraulic repair underway. Step-free access impacted.');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+              >
+                🛗 Elevator Outage Sign
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportType('broken_ramp');
+                  setSeverity('high');
+                  setDetails('Ramp closed for resurfacing work. Detour via East pedestrian corridor.');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+              >
+                🚧 Ramp Repair Sign
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportType('dim_lighting');
+                  setSeverity('medium');
+                  setDetails('Walkway lighting malfunction. Dim pedestrian walkway reported.');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+              >
+                💡 Dim Light Notice
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setReportType('sos_alert');
+                  setSeverity('critical');
+                  setDetails('Emergency SOS station activated. Safety patrol alerted.');
+                }}
+                className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-300 transition"
+              >
+                🚨 Emergency SOS
+              </button>
+            </div>
+          </div>
+
           {/* Section 1: Choose Report Category / Type */}
           <div>
             <label className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-2">

@@ -3,6 +3,75 @@
  * WCAG AAA High Contrast & Font Scaling System
  */
 
+/* Base look & feel: subtle depth so panels don't feel like flat slabs */
+html {
+  color-scheme: dark;
+  scrollbar-color: #334155 rgba(15, 23, 42, 0.6);
+}
+
+body {
+  background-color: #020617;
+  background-image:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(16, 185, 129, 0.09), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 100% 10%, rgba(59, 130, 246, 0.08), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 50% 120%, rgba(168, 85, 247, 0.05), transparent 60%);
+  background-attachment: fixed;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Elevated card hover: gentle lift + brighter border, no layout shift */
+.hover-lift {
+  transition:
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.25s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.25s ease;
+}
+.hover-lift:hover {
+  transform: translateY(-2px);
+}
+
+/* Subtle glass panel utility for headers/modals */
+.glass-panel {
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(16px) saturate(140%);
+  -webkit-backdrop-filter: blur(16px) saturate(140%);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+/* Gradient text utility for hero/brand moments */
+.text-gradient-brand {
+  background: linear-gradient(135deg, #34d399 0%, #38bdf8 60%, #a78bfa 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Smooth, consistent interactive transitions everywhere without fighting Tailwind's own `transition-*` utilities */
+button,
+a,
+input,
+select,
+textarea {
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+button:active:not(:disabled) {
+  transform: translateY(0.5px) scale(0.985);
+}
+
+/* Strong, visible keyboard focus ring — essential for an accessibility-first product */
+:focus-visible {
+  outline: 2px solid #34d399;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.high-contrast :focus-visible {
+  outline: 3px solid #ffff00;
+  outline-offset: 2px;
+}
+
 /* Custom Animations */
 @keyframes fadeIn {
   from {
@@ -25,8 +94,24 @@
   }
 }
 
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+  100% {
+    background-position: 400px 0;
+  }
+}
+
 .animate-fadeIn {
   animation: fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Skeleton shimmer for first-paint loading states */
+.skeleton-shimmer {
+  background: linear-gradient(90deg, #0f172a 25%, #1e293b 37%, #0f172a 63%);
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
 }
 
 /* Custom Scrollbars */

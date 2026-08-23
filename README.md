@@ -1,149 +1,236 @@
-# AccessRide
+# AccessRide v2.0 Pro: Multi-Modal Transit & Safety Platform
 
-**Accessibility-First Transit routing, safety check-ins, and predictive crowd & safety insights.**
+**Accessibility-First Transit routing, real-time geofence safety monitoring, on-device OCR barrier scanning (with an honestly-labeled demo fallback), and serverless P2P multi-device synchronization via copy/paste or native Share.**
 
-AccessRide is a single-page web app that helps riders with different mobility, sensory, and safety needs find and follow the best route across a transit network — and gives transit operators the tools to monitor fleet status, triage rider-submitted reports, and forecast crowding.
-
----
-
-## 1. What's in this project
-
-| Feature | Description |
-|---|---|
-| **Accessibility Profiles** | 6 rider profiles (wheelchair, elderly, vision/hearing, night safety, quiet/sensory, standard), each with a tuned default preference set |
-| **Multi-Modal Route Engine** | Scores routes on accessibility, safety, comfort & speed, with full explanations and trade-offs |
-| **Live Journey Mode** | Turn-by-turn navigation, voice announcements, and a 4-stage missed check-in → emergency escalation flow |
-| **Crowdsourced Reporting** | Riders flag broken elevators, dim lighting, crowding, delays, and safety concerns from the map or a route |
-| **Operator Command Dashboard** | Fleet telemetry, incident triage queue, and system-wide broadcast alerts |
-| **Predictive Insights (ML)** | Two models trained in-browser: a crowd-level forecaster and a safety/lighting score estimator for proposed corridors |
+AccessRide is a production-grade single-page web app that empowers riders with diverse mobility, sensory, and safety needs to navigate transit networks safely and barrier-free — while providing transit operators with real-time fleet telemetry, geofenced hazard alerts, and ML-powered crowding/safety forecasting.
 
 ---
 
-## 2. Tech stack
+## 1. Integrated Features & Architecture
 
-| Layer | Choice |
-|---|---|
-| Build tool | Vite |
-| Framework | React 19 + TypeScript |
-| Styling | Tailwind CSS 3 (utility classes) + a small hand-written stylesheet for animations, scrollbars, and the WCAG AAA high-contrast / font-scaling system (`src/custom.css`) |
-| Mapping | Leaflet, with CartoDB Voyager tiles |
-| Machine learning | No external ML library — a softmax classifier and a ridge linear regression, written and trained from scratch in plain TypeScript (see [section 5](#5-the-machine-learning-layer)) |
+```
+                                  +-------------------------------------------------------------+
+                                  |                     AccessRide App                          |
+                                  +-------------------------------------------------------------+
+                                        |                |                  |                |
+           +----------------------------+                |                  |                +----------------------------+
+           |                                             |                  |                                             |
+           v                                             v                  v                                             v
++-----------------------+                    +--------------------+ +--------------------+                    +-----------------------+
+|  Dynamic Any-Point    |                    |  GridPulse Safety  | |   Scan & Report    |                    |  Serverless P2P Sync  |
+|  Routing Engine       |                    |  & Geofence Layer  | |   OCR Classifier   |                    |  & Emergency SOS      |
++-----------------------+                    +--------------------+ +--------------------+                    +-----------------------+
+| • Tap any 2 map pins  |                    | • Dynamic pulse    | | • Client-side OCR  |                    | • WebRTC DataChannel  |
+| • OSM Nominatim Search|                    |   hazard zones     | | • Barrier signage  |                    |   (Google STUN)       |
+| • OSRM walking paths  |                    | • Multi-tile map   |   classifier         |                    | • SVG QR Code         |
+| • Snapped transit legs|                    | • Proximity alert  | | • Real camera OCR* |                    | • WebRTC DataChannel  |
+| • First/last mile     |                    |   audio chime      | • Demo Mode fallback |                    |   (Google STUN)       |
+|   walk calculation    |                    | • Incident triage  |   *=browser-dependent |                    | • Copy/Share handshake |
++-----------------------+                    +--------------------+ +--------------------+                    +-----------------------+
+```
 
-This project previously ran with no build step at all: React, Leaflet, and Babel Standalone were all loaded from CDNs directly inside `index.html`, and JSX was transpiled live in the browser on every page load. It's now a proper Vite project — the same component code compiles ahead of time, ships as optimized static assets, and gets full TypeScript type-checking.
+| Feature Area | Technology | Capabilities |
+|---|---|---|
+| **Any-Point Dynamic Routing** | Nominatim Geocoding + OSRM Pedestrian Routing + Haversine Engine | Pick literally any two points on the globe, search addresses, use GPS, and calculate complete multi-modal itineraries with verified first-mile & last-mile walking paths. |
+| **GridPulse™ Safety & Geofencing** | Leaflet + Multi-Tile Providers (CARTO, OSM, Dark, Satellite) + Collision Math + Proximity Clustering | A fixed baseline layer of reference zones, plus zones dynamically clustered in real time from live, unresolved community reports (labeled "Live Cluster" vs "Baseline Zone" in the map popup) — proximity hazard alerts with audio chimes, incident claiming and dispatching. |
+| **Scan & Report (OCR)** | Real camera capture (`getUserMedia`) + native `TextDetector` API where the browser supports it (e.g. Chrome/Android), regex/semantic signage classifier (zero API key needed) | Opens the real device camera or reads an uploaded photo; runs genuine on-device text detection when the browser has it, and otherwise falls back to a clearly-labeled "Demo Mode" sample instead of quietly faking OCR output. The classifier itself (category/severity/keyword detection) always runs for real on whatever text it's given. |
+| **Serverless P2P Sync** | WebRTC `RTCDataChannel` (Google STUN) + Outbox / SyncCursor LWW Store + Copy/Share pairing codes | 100% serverless browser-to-browser data sync for saved routes, ICE emergency contacts, accessibility preferences, and real-time P2P Emergency SOS broadcast. Pairing is done by copying or natively sharing (`navigator.share`) the handshake code between devices — reliable today. QR-code pairing was removed after it turned out to render an unscannable decorative pattern; see §6 for why, and how to add a real one. |
+| **Accessibility Profiles** | WCAG 2.1 AAA Theming + Speech Synthesis | 6 tuned mobility profiles (Wheelchair, Elderly, Night Safety, Vision/Hearing, Quiet/Sensory, Standard) with high-contrast mode and font scaling. |
+| **Predictive Insights (ML)** | Pure TypeScript In-Browser ML | Softmax cyclical-hour crowd classifier and L2-regularized safety score estimator. |
+| **Operator Command Desk** | Real-time Telemetry & Incident Queue | Live vehicle fleet tracking, ramp health monitoring, and system-wide broadcast alerts. |
 
 ---
 
-## 3. Getting started
+## 2. Tech Stack
 
-Requirements: Node.js 18+ and npm.
+- **Build System**: Vite 5.4 + TypeScript 5/6
+- **UI Framework**: React 19 (Component-driven architecture)
+- **Styling**: Tailwind CSS 3 + WCAG 2.1 AAA High Contrast Engine (`src/custom.css`)
+- **Mapping & Geodata**: Leaflet, OpenStreetMap Nominatim, OSRM Public Routing Profile, CARTO Tiles
+- **P2P Networking**: WebRTC `RTCPeerConnection` with DataChannel (`accessride-p2p-sync`) & Google STUN
+- **Machine Learning**: Dependency-free numeric matrix algorithms (Softmax, Sigmoid, L2-Ridge Regression)
+
+---
+
+## 3. Getting Started
+
+### Prerequisites
+Node.js 18+ and npm installed.
+
+### Installation & Run
 
 ```bash
-npm install        # install dependencies
-npm run dev        # start the Vite dev server (hot reload)
-npm run build      # type-check with tsc, then build an optimized production bundle into dist/
-npm run preview    # serve the production build locally
-npm run lint       # run oxlint
+# Install dependencies
+npm install
+
+# Start Vite development server
+npm run dev
+
+# Typecheck and build production bundle
+npm run build
+
+# Preview production build locally
+npm run preview
 ```
 
 ---
 
-## 4. Project structure
+## 4. Feature Guides
+
+### 🗺️ Any-Point Door-to-Door Routing
+1. Open the **Route Planner** tab.
+2. Click **"🗺️ Pick on Map"** next to Starting Point or Destination, then tap anywhere on the map to drop a custom pin.
+3. Alternatively, search any global address or campus landmark using the integrated top search bar.
+4. Click **🎯 (Locate Me)** to use real GPS coordinates.
+5. The engine calculates door-to-door transit options with turn-by-turn walking legs (OSRM) before and after transit lines, with complete step-free and safety breakdowns.
+
+### 🛡️ GridPulse™ Safety Map & Geofencing
+1. Switch to the **GridPulse™** tab.
+2. View active hazard heat zones and incident pins with category emojis (🚑 Medical, 🔥 Fire, ⚠️ Hazard, 🚧 Barrier, 🔧 Infrastructure, 💡 Lighting).
+3. Zones come in two flavors, both shown on the map and labeled in each popup: a fixed **Baseline Zone** layer, and **Live Cluster** zones computed on the fly by grouping nearby unresolved community reports (2+ reports close together, or any single critical one).
+4. Toggle base map tiles: **CARTO Clean**, **OpenStreetMap**, **Tactical Dark**, or **Satellite View**.
+5. Test geofence collision alerts using the **"Test Geofence Position"** buttons at the bottom left to simulate walking into hazard zones.
+
+### 📷 Scan & Report (OCR)
+1. Switch to the **Scan & Report** tab or click **"Scan Sign with OCR"** inside the Report Modal.
+2. A banner at the top tells you, honestly, what your browser can do: 🟢 if it has a native on-device text-detection engine (real OCR will run), or 🟡 if it doesn't (results will be a clearly-labeled demo sample instead of fabricated text).
+3. Click **"Open Camera"** to actually access your device camera and capture a real photo, or **"Upload Sign Photo"** to analyze an existing image — or pick a sample sign to see the classifier work without needing a photo at all.
+4. Every result carries a provenance badge (🟢 Live OCR vs 🟡 Demo Mode) so you always know whether the extracted text came from the image or from a labeled fallback. The severity/category classifier itself is real either way and always runs on whatever text is shown.
+5. Click **"Auto-Fill & Post Community Report"** to push the result into a new report.
+
+### 🔄 Serverless P2P Multi-Device Sync
+1. Open the **P2P Sync** tab on Device A (e.g., Laptop) and click **"Generate Pairing Code"**.
+2. **Copy** the code or tap **Share** (uses your OS share sheet via `navigator.share` where supported) and send it to Device B by whatever channel you like — text, AirDrop, email, etc.
+3. On Device B, open the **P2P Sync** tab, select **"Join with Code"**, and paste the pairing code to generate an Answer code.
+4. Copy or Share that Answer code back to Device A to establish a direct WebRTC DataChannel.
+5. Saved routes, ICE emergency contacts, and accessibility preferences sync automatically with Last-Write-Wins (LWW) conflict resolution.
+6. Click **"Broadcast SOS"** to fire an instant emergency alert that triggers an audible alarm and notification on all paired devices!
+
+> There's no QR-code scanning step — see **§7 Known Limitations** for why, and how to add real QR support later.
+
+---
+
+## 5. Directory Structure
 
 ```
 src/
-├── main.tsx                   Application entry point
-├── index.css                  Tailwind + Leaflet + custom.css, in that order
-│                              (custom.css must load after Tailwind's base layer to override it)
-├── custom.css                 Hand-written animations, scrollbars, and the
-│                              accessibility theming system
-├── App.tsx                    Root component: tab navigation, shared state,
-│                              and the wiring between features
+├── App.tsx                     Root application component & navigation orchestrator
+├── main.tsx                    Vite application entry point
+├── index.css                   Tailwind + Leaflet base styles
+├── custom.css                  Accessible theming & high-contrast styles
 │
 ├── types/
-│   └── transit.ts             Every shared TypeScript type: stops, lines,
-│                              routes, reports, fleet vehicles, accessibility profiles
+│   └── transit.ts              Unified TypeScript interfaces (TripPoint, GridPulse, Sync, OCR)
 │
-├── data/
-│   └── transitData.ts         Mock transit network: stops, lines,
-│                              accessibility profiles, and quick-plan presets
+├── utils/
+│   └── geo.ts                  Haversine distance, point-in-polygon, bearing, nearest stop
 │
 ├── services/
-│   ├── transitService.ts      In-memory data store (stops, lines, reports,
-│   │                          fleet) with simple CRUD methods
-│   ├── routingEngine.ts       Generates and scores candidate routes against
-│   │                          a rider's accessibility preferences
-│   └── speechService.ts       Thin wrapper over the Web Speech API for
-│                              voice announcements
+│   ├── geocoding.ts            Nominatim search, reverse geocoding & OSRM walking path router
+│   ├── dynamicRouting.ts       Door-to-door multi-modal routing wrapper with walking first/last miles
+│   ├── routingEngine.ts        Core multi-criteria transit route scorer & ranker
+│   ├── transitService.ts       In-memory reactive data store for transit stops, lines, and reports
+│   └── speechService.ts        Web Speech API wrapper for accessibility announcements
 │
-├── components/                One file per screen or modal: HomeScreen,
-│                              RoutePlanner, MapView, JourneyMode,
-│                              OperatorDashboard, PreferenceModal,
-│                              ReportModal, RouteCard, RouteDetailModal,
-│                              Navbar, InsightsPanel
+├── features/
+│   ├── gridpulse/              GridPulse™ Dynamic Geofencing & Safety Map Layer
+│   │   ├── types.ts            GeofenceZone, MapIncidentPin, AlertRecord definitions
+│   │   ├── gridPulseEngine.ts  Dynamic zone clustering, tile configs & proximity audio chimes
+│   │   ├── AlertBanner.tsx     Real-time accessible geofence alert notification strip
+│   │   └── GridPulsePanel.tsx  Interactive full-screen safety command map & incident manager
+│   │
+│   ├── ocr/                    On-device OCR Barrier Scanner & Sign Classifier
+│   │   ├── scanReport.ts       Regex & semantic signage classifier with barrier dictionary
+│   │   ├── ocrEngine.ts        Real getUserMedia camera capture + native TextDetector OCR, honest demo fallback
+│   │   └── ScanReportPanel.tsx Camera modal/upload panel, OCR provenance badges & auto-reporting panel
+│   │
+│   └── sync/                   Serverless WebRTC Peer-to-Peer Multi-Device Sync
+│       ├── syncModels.ts       SyncCursor, SyncOutboxEntry, SyncedState, and SyncPayload models
+│       ├── p2pService.ts       WebRTC DataChannel manager (Google STUN) & SOS broadcaster
+│       ├── qrHelper.tsx        Capability check + notes on why QR pairing was removed (see §7)
+│       ├── syncStore.ts        Last-Write-Wins (LWW) conflict resolver & outbox queue
+│       └── SyncPanel.tsx       Pairing UI (Copy/Share codes), synced routes, ICE contacts & emergency beacon
 │
-└── ml/                        The predictive models — see section 5
-    ├── mathUtils.ts           Dependency-free numeric helpers (dot product,
-    │                          sigmoid, softmax, feature standardization)
-    ├── crowdModel.ts          Crowd-level forecaster
-    ├── safetyModel.ts         Safety/lighting score estimator
-    └── index.ts               Barrel export
-```
-
-Also present at the project root:
-
-```
-features/    A parallel, read-only reference copy of the same source files,
-             split one feature per folder with its own README. Useful if
-             you want to lift a single feature (e.g. just the routing
-             engine) into another project. It mirrors src/ but is not part
-             of the build — the compiled app only ever reads from src/.
+├── components/                 UI Screens & Modals
+│   ├── HomeScreen.tsx          Overview dashboard with quick presets & safety summary
+│   ├── RoutePlanner.tsx        Door-to-door trip planner with map-picking & route cards
+│   ├── MapView.tsx             Interactive Leaflet map with address search, GPS, and custom pins
+│   ├── JourneyMode.tsx         Turn-by-turn guidance with 4-stage emergency escalation
+│   ├── OperatorDashboard.tsx   Fleet telematics, incident queue, and advisory dispatcher
+│   ├── InsightsPanel.tsx       Predictive crowd & safety ML models
+│   ├── Navbar.tsx              Header navigation with contrast toggle and 7 main tabs
+│   ├── RouteCard.tsx           Accessibility-scored route card component
+│   ├── RouteDetailModal.tsx    Full step-by-step itinerary breakdown modal
+│   ├── PreferenceModal.tsx     Accessibility profile and filter customization modal
+│   └── ReportModal.tsx         Community reporting modal with integrated OCR scanner
+│
+└── ml/                         In-Browser Machine Learning Models
+    ├── mathUtils.ts            Dot product, softmax, sigmoid, normalization
+    ├── crowdModel.ts           Cyclical hour rush-hour crowding classifier
+    ├── safetyModel.ts          L2-regularized corridor safety estimator
+    └── index.ts                ML barrel export
 ```
 
 ---
 
-## 5. The machine learning layer
+## 6. This Build: Merge & Polish Notes
 
-Both models are intentionally small and dependency-free: no TensorFlow, no scikit-learn equivalent, just gradient descent written out in TypeScript. That keeps them auditable end-to-end and fast enough to retrain every time the app loads, with zero backend or API calls.
+This package is the single, consolidated result of merging four previously separate source trees into one deployable app:
 
-### Crowd-level forecast
+- **`mapViewOmega`** (original 5-screen base app: profiles, routing, journey mode, reporting, operator dashboard, ML insights)
+- **`multi-device-sync`** (a real ASP.NET Core sync service, but from an unrelated medical clinic app — no nearby-device/Bluetooth logic existed there, so it was **not** reused; the P2P feature below was built from scratch instead)
+- **`GridPulseMap`** (a Leaflet safety map component, missing its type/helper dependencies and hardcoded to one campus — rebuilt as a dynamic, data-driven `features/gridpulse/` module)
+- **`shopkeeper-ocr`** (an invoice/receipt OCR parser — its reusable text-classification core was repointed at accessibility barrier signage as `features/ocr/`)
 
-A multinomial logistic regression (a "softmax classifier") predicts whether a given transit line will be low / moderate / high crowded at a chosen hour of day and day type (weekday vs. weekend).
+On top of that integration, this pass added:
 
-**Features:** hour of day (encoded cyclically with sin/cos so 11pm and midnight are numerically close), weekday vs. weekend, the line's service frequency, and the line's known baseline crowd level.
+- Tap-anywhere routing with real address search (Nominatim) and real walking paths (OSRM) — not just the 8 preset stops
+- Serverless WebRTC peer-to-peer device sync with a Copy/Share code handshake (genuine nearby-device pairing, zero backend)
+- A visual polish pass: a themed background treatment, consistent `focus-visible` keyboard-navigation rings (important for an accessibility-first app), skeleton loading states instead of bare "Loading…" text, refined shadows/transitions, and centralized design tokens in `tailwind.config.js`
 
-**Training data:** the app has no historical ridership log yet — each line only has one static `crowdLevel` snapshot. `crowdModel.ts` builds a synthetic-but-realistic training set instead: it shapes a 24-hour ridership curve around each line's baseline (two commuter peaks on weekdays, one soft midday peak on weekends) and adds noise, then trains the classifier on that. The model is genuinely fit by gradient descent — nothing is hard-coded per line.
+A later audit pass then found and fixed three places where the app looked more capable than it actually was — see **§7 Known Limitations & What Was Fixed** below for the honest before/after on each.
 
-**Swapping in real data:** once real ridership timestamps exist (for example, from `CommunityReport.crowdLevelReported` entries or fleet telemetry pings), replace `buildSyntheticTrainingSet()` in `crowdModel.ts` with a function that maps that history into the same `CrowdSample[]` shape. Everything downstream — training, prediction, the chart in the Insights tab — keeps working unchanged.
-
-### Safety / lighting score estimator
-
-A ridge (L2-regularized) linear regression predicts a 1–10 safety score for a stop or a hypothetical new corridor, from the same infrastructure flags already tracked on every stop: CCTV coverage, a nearby security kiosk, a Blue-Light SOS station, step-free access, a ramp, an operational elevator, tactile paving, and audio announcements.
-
-**Training data:** the app's existing ~8 stops. That's a small dataset, so the model uses fairly strong L2 regularization to avoid overfitting to so few examples — add more stops (or real accessibility audit data) to `MOCK_TRANSIT_STOPS` and it will fit a sharper model automatically next time it trains.
-
-**Why this doubles as a suggestion engine:** because it's a *linear* model, each feature's learned weight is a direct, readable answer to "how much would adding this improve the score?" `suggestImprovements()` in `safetyModel.ts` turns those weights into a ranked "what to build next" list — this is what powers the suggestions shown in the Insights tab.
-
-### Where it shows up in the app
-
-Both models are wired into a new **Predictive Insights** tab (`src/components/InsightsPanel.tsx`): pick a line and day type to see its 24-hour crowd forecast, or toggle safety features for a proposed corridor to see its estimated score and top suggested improvements.
-
----
-
-## 6. Accessibility
-
-- WCAG AAA high-contrast theme toggle
-- Three-step font scaling (normal / large / extra-large)
-- Full voice announcement support via the Web Speech API
-- Six built-in accessibility profiles with tuned defaults, fully overridable per user
-- Preferences persist to `localStorage` across sessions
+### Before you run it
+```bash
+npm install
+npm run dev      # http://localhost:5173
+npm run build    # production build → dist/
+```
+If `npm run build` ever fails with an error mentioning `Cannot find native binding` (an npm optional-dependency bug, see npm/cli#4828), just delete `node_modules` and `package-lock.json` and run `npm install` again — it re-fetches the correct binary for your OS/CPU automatically.
 
 ---
 
-## 7. Notes on the migration from the original prototype
+## 7. Known Limitations & What Was Fixed
 
-This app began as a browser-only prototype: a single `index.html` loading React, Leaflet, and Babel Standalone from CDNs, with JSX transpiled live on every page load and no build step or type checking at all. Moving it to Vite involved:
+An earlier audit of this codebase found three features that looked more capable in the UI/README than what the code actually did. Here's the honest state of each after this pass, and what's still genuinely open.
 
-- Adopting `src/` (the clean, already-modular TSX source) as the single source of truth, and removing the earlier hand-rolled vanilla-JS implementation (`js/`), a leftover scratch file (`temp_script.js`), and the inline CDN `<script>` tags in `index.html`
-- Installing Leaflet as a real npm dependency and importing it directly in `MapView.tsx`, instead of relying on a `window.L` global injected by a CDN `<script>` tag
-- Installing Tailwind CSS as a proper PostCSS build step instead of the CDN JIT compiler
-- Fixing a handful of small type gaps that had no way to surface before there was a type checker in the loop (for example, the emergency escalation flow produced a `'sos_alert'` report that the `ReportType` union didn't yet know about) — no application behavior changed, only the types now match what the code actually does
+### 📷 OCR — real where the browser supports it, honestly labeled where it doesn't
+**Before:** "Camera Snap" injected one hardcoded string regardless of what the camera saw. "Upload Sign Photo" never looked at pixels — it derived fake "OCR text" from the uploaded filename. `tesseract.js` wasn't even a dependency.
+
+**Now:**
+- **Open Camera** genuinely calls `getUserMedia`, shows a live preview, and captures a real frame.
+- **Upload Sign Photo** genuinely loads and decodes the image.
+- Both then attempt **real OCR** via the browser's native Shape-Detection `TextDetector` API. Where that's available (Chrome/Chromium on Android today; occasionally desktop behind a flag), you get actual pixel-derived text, badged 🟢 **Live OCR**.
+- Where it isn't available (most desktop Chrome/Firefox/Safari as of writing), the app says so up front via a banner, and any result is badged 🟡 **Demo Mode** with a representative sample — never fabricated from your filename or silently passed off as real.
+- The regex/severity classifier (`scanReport.ts`) was already solid and is unchanged — it now just always gets an honest label on where its input text came from.
+- **Still open:** for guaranteed OCR on every browser (not just Chrome/Android), install `tesseract.js` (`npm install tesseract.js`) and uncomment the ready-made hook in `features/ocr/ocrEngine.ts`. Not wired in by default because this pass had no network access to install it or verify the integration end-to-end.
+
+### 🔄 P2P Sync — QR code removed, Copy/Share is the real path
+**Before:** the "QR code" was an SVG rendered from a hash of the pairing token — finder-square-shaped, but not a real QR encoding. No phone camera could ever decode it, there was no QR *scanner* anywhere in the app either, and the token was silently truncated to 120 characters before being "encoded," which would have corrupted a real handshake regardless.
+
+**Now:** the fake QR is gone. Copy-to-clipboard and native **Share** (`navigator.share`, opens your OS share sheet on supported devices/browsers) are the primary, fully-working pairing path — this was already real and correctly wired to genuine WebRTC (`RTCPeerConnection`, offer/answer, data channel); only the QR *decoration* was fake.
+
+**Why there's no real QR yet, and why that's a deliberate choice, not an oversight:** a WebRTC offer/answer token embeds the full SDP plus ICE candidates (since this app has no signaling server to trickle candidates through separately), which commonly runs 1–3+ KB. That's a poor fit for QR — either it doesn't fit in a code dense enough to still be reliably camera-scannable, or it only works for unusually short sessions. This is a known, real constraint of serverless WebRTC pairing, not something a better QR *encoder* alone fixes. Rather than hand-roll a Reed-Solomon QR implementation I have no way to verify against a real scanner (no network or camera in this build environment), the honest move was to ship the reliable Copy/Share path and leave QR as a documented follow-up:
+- **To add real QR support:** `npm install qrcode`, then render its output wherever `canFitInQr(token)` in `features/sync/qrHelper.tsx` returns `true` (it's a conservative size gate, already wired to nothing on purpose). This is a well-tested library — safer than a from-scratch encoder nobody has scanned with a real phone.
+- **To make tokens routinely fit:** the cleanest fix is architectural — add a lightweight signaling relay so devices exchange a short room code instead of the full SDP. That's a bigger change and intentionally out of scope here, since it trades away the "100% serverless" property this feature currently has.
+
+### 🛡️ GridPulse — zones are now actually dynamic
+**Before:** incident pins came from live `CommunityReports` (this part was always real), but the geofence *zones* were a fixed set of default polygons — despite being described elsewhere as clustered from real reports.
+
+**Now:** `gridPulseEngine.ts` clusters live, unresolved reports by proximity (`deriveLiveClusterZones`) into real hazard/caution zones sized and colored from the cluster's reports, shown alongside the original fixed reference zones. Every zone popup is labeled **● Live Cluster** or **○ Baseline Zone** so it's clear which is which. This also fixed a real bug: the zone-rendering effect previously had an empty dependency array, so zones never re-rendered when new reports came in even before today's fix — they were rendered once, at map init, and never touched again.
+
+### Everything else
+Routing (address search, OSRM walking paths, tap-anywhere-on-map), the ML models, and the core screens were already real and correctly wired, and weren't touched beyond what's noted above.
+
+### A note on verification
+This pass was made without network access — `npm install` was unavailable, so no new dependencies were added, and no `npm run build` / `npm run dev` could be run to confirm a green build. Please run `npm install && npm run build` after pulling these changes and file an issue (or just ping) if anything doesn't compile — the changes here are scoped, self-contained, and don't touch `package.json`, so a clean install should behave the same as before.

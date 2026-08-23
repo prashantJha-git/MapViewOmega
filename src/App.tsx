@@ -10,11 +10,12 @@ import type {
   ProfileId,
   CommunityReport,
   FleetVehicle,
+  TripPoint,
 } from './types/transit';
 import { TransitService } from './services/transitService';
-import { RoutingEngine } from './services/routingEngine';
+import { DynamicRoutingEngine } from './services/dynamicRouting';
 import { SpeechService } from './services/speechService';
-import { Navbar } from './components/Navbar';
+import { Navbar, NavigationTab } from './components/Navbar';
 import { HomeScreen } from './components/HomeScreen';
 import { RoutePlanner } from './components/RoutePlanner';
 import { PreferenceModal } from './components/PreferenceModal';
@@ -23,12 +24,16 @@ import { ReportModal } from './components/ReportModal';
 import { OperatorDashboard } from './components/OperatorDashboard';
 import { InsightsPanel } from './components/InsightsPanel';
 import { JourneyMode } from './components/JourneyMode';
+import { GridPulsePanel } from './features/gridpulse/GridPulsePanel';
+import { ScanReportPanel } from './features/ocr/ScanReportPanel';
+import { SyncPanel } from './features/sync/SyncPanel';
+import { GlobalP2PService } from './features/sync/p2pService';
+import { GlobalSyncStore } from './features/sync/syncStore';
+import { playAlertTone } from './features/gridpulse/gridPulseEngine';
 
 export const App: React.FC = () => {
   // Navigation
-  const [currentTab, setCurrentTab] = useState<'home' | 'planner' | 'operator' | 'journey' | 'insights'>(
-    'home'
-  );
+  const [currentTab, setCurrentTab] = useState<NavigationTab>('home');
 
   // Accessibility & Safety Preferences
   const [preferences, setPreferences] = useState<UserPreferences>(() => {
@@ -57,8 +62,23 @@ export const App: React.FC = () => {
   const [reports, setReports] = useState<CommunityReport[]>([]);
   const [fleet, setFleet] = useState<FleetVehicle[]>([]);
 
-  const [originId, setOriginId] = useState<string>('stop_gate');
-  const [destId, setDestId] = useState<string>('stop_lib');
+  // Door-to-Door Trip Points (supports stops + custom coordinates / addresses)
+  const [originPoint, setOriginPoint] = useState<TripPoint>({
+    type: 'stop',
+    id: 'stop_gate',
+    name: 'West Campus Main Gate Hub',
+    lat: 42.365,
+    lng: -71.105,
+  });
+
+  const [destPoint, setDestPoint] = useState<TripPoint>({
+    type: 'stop',
+    id: 'stop_lib',
+    name: 'Central Science Library & Quad',
+    lat: 42.37,
+    lng: -71.095,
+  });
+
   const [routes, setRoutes] = useState<RouteCandidate[]>([]);
   const [selectedRoute, setSelectedRoute] = useState<RouteCandidate | null>(null);
 
@@ -97,37 +117,70 @@ export const App: React.FC = () => {
     // Speech service sync
     SpeechService.setEnabled(preferences.voiceAnnouncements);
 
-    // Save preferences to localStorage
+    // Save preferences to localStorage and sync store
     localStorage.setItem('accessride_preferences', JSON.stringify(preferences));
+    GlobalSyncStore.updatePreferences(preferences);
   }, [preferences]);
 
-  // 3. Route Calculation Routine
-  const runRouteCalculation = useCallback((from: string, to: string, prefs: UserPreferences) => {
-    if (!from || !to || from === to) {
-      setRoutes([]);
-      setSelectedRoute(null);
-      return;
-    }
+  // 3. Listen for Incoming P2P Emergency SOS Beacons
+  useEffect(() => {
+    const unsubSos = GlobalP2PService.onSosReceived(sos => {
+      playAlertTone('critical');
+      setBroadcastBanner({
+        title: `🚨 P2P EMERGENCY SOS BEACON (${sos.senderName})`,
+        message: `${sos.message} [Time: ${sos.timestamp}]`,
+      });
+      SpeechService.speak(`Emergency alert received from paired device: ${sos.senderName}.`);
+    });
 
-    const calculated = RoutingEngine.calculateRoutes(from, to, prefs);
-    setRoutes(calculated);
-
-    if (calculated.length > 0) {
-      setSelectedRoute(calculated[0]); // Default to the top recommended route
-      if (prefs.voiceAnnouncements) {
-        SpeechService.speak(
-          `Calculated ${calculated.length} routes. Top recommendation is ${calculated[0].title}. Total travel time: ${calculated[0].totalDurationMin} minutes.`
-        );
-      }
-    } else {
-      setSelectedRoute(null);
-    }
+    return () => {
+      unsubSos();
+    };
   }, []);
 
-  // Recalculate routes whenever origin, dest, or preferences change
+  // 4. Dynamic Route Calculation Routine (Handles any custom lat/lng or stops)
+  const runRouteCalculation = useCallback(
+    async (from: TripPoint, to: TripPoint, prefs: UserPreferences, currentStops: TransitStop[]) => {
+      if (!from || !to) {
+        setRoutes([]);
+        setSelectedRoute(null);
+        return;
+      }
+
+      if (from.type === 'stop' && to.type === 'stop' && from.id === to.id) {
+        setRoutes([]);
+        setSelectedRoute(null);
+        return;
+      }
+
+      const calculated = await DynamicRoutingEngine.calculateDynamicRoutes(
+        from,
+        to,
+        prefs,
+        currentStops
+      );
+      setRoutes(calculated);
+
+      if (calculated.length > 0) {
+        setSelectedRoute(calculated[0]);
+        if (prefs.voiceAnnouncements) {
+          SpeechService.speak(
+            `Calculated ${calculated.length} routes. Top recommendation is ${calculated[0].title}. Total travel time: ${calculated[0].totalDurationMin} minutes.`
+          );
+        }
+      } else {
+        setSelectedRoute(null);
+      }
+    },
+    []
+  );
+
+  // Recalculate routes whenever origin, dest, preferences, or stops change
   useEffect(() => {
-    runRouteCalculation(originId, destId, preferences);
-  }, [originId, destId, preferences, runRouteCalculation]);
+    if (stops.length > 0) {
+      runRouteCalculation(originPoint, destPoint, preferences, stops);
+    }
+  }, [originPoint, destPoint, preferences, stops, runRouteCalculation]);
 
   // Handlers
   const handleUpdatePreferences = (updates: Partial<UserPreferences>) => {
@@ -152,33 +205,53 @@ export const App: React.FC = () => {
   };
 
   const handleSelectPreset = (preset: QuickPreset) => {
-    setOriginId(preset.originId);
-    setDestId(preset.destId);
+    const originStop = stops.find(s => s.id === preset.originId);
+    const destStop = stops.find(s => s.id === preset.destId);
+
+    if (originStop && destStop) {
+      setOriginPoint({
+        type: 'stop',
+        id: originStop.id,
+        name: originStop.name,
+        lat: originStop.lat,
+        lng: originStop.lng,
+      });
+      setDestPoint({
+        type: 'stop',
+        id: destStop.id,
+        name: destStop.name,
+        lat: destStop.lat,
+        lng: destStop.lng,
+      });
+    }
     setCurrentTab('planner');
     if (preferences.voiceAnnouncements) {
-      SpeechService.speak(`Loading preset route from ${preset.title}.`);
+      SpeechService.speak(`Loading preset route for ${preset.title}.`);
     }
   };
 
   const handleSwapLocations = () => {
-    const temp = originId;
-    setOriginId(destId);
-    setDestId(temp);
+    const temp = originPoint;
+    setOriginPoint(destPoint);
+    setDestPoint(temp);
   };
 
   // Start Journey Mode
   const handleStartJourney = (route: RouteCandidate) => {
     setActiveJourneyRoute(route);
+    GlobalSyncStore.updateActiveJourney(route);
     setCurrentTab('journey');
   };
 
   const handleCompleteJourney = () => {
     setActiveJourneyRoute(null);
+    GlobalSyncStore.updateActiveJourney(null);
     setCurrentTab('planner');
   };
 
   const handleExitJourney = () => {
     setActiveJourneyRoute(null);
+    GlobalSyncStore.updateActiveJourney(null);
     setCurrentTab('planner');
   };
 
@@ -195,12 +268,10 @@ export const App: React.FC = () => {
     const updatedReports = TransitService.addCommunityReport(newReportData);
     setReports([...updatedReports]);
 
-    // Refresh stops state from service to reflect barrier updates
     const refreshedStops = await TransitService.getStops();
     setStops([...refreshedStops]);
 
-    // Recalculate routes dynamically
-    runRouteCalculation(originId, destId, preferences);
+    runRouteCalculation(originPoint, destPoint, preferences, refreshedStops);
   };
 
   // Operator Resolve Report
@@ -208,12 +279,10 @@ export const App: React.FC = () => {
     const updatedReports = TransitService.resolveCommunityReport(reportId, note);
     setReports([...updatedReports]);
 
-    // Refresh stops state from service to reflect restored status
     const refreshedStops = await TransitService.getStops();
     setStops([...refreshedStops]);
 
-    // Recalculate routes dynamically
-    runRouteCalculation(originId, destId, preferences);
+    runRouteCalculation(originPoint, destPoint, preferences, refreshedStops);
   };
 
   // Upvote Report
@@ -228,7 +297,7 @@ export const App: React.FC = () => {
     setFleet([...updatedFleet]);
   };
 
-  // Broadcast Advisory
+  // Emergency Escalation
   const handleTriggerEmergencyEscalation = (route: RouteCandidate, step: RouteSegment) => {
     const escalationReport: Omit<CommunityReport, 'id' | 'timestamp' | 'upvotes' | 'status'> = {
       stopId: step.fromStopId || 'stop_lib',
@@ -239,7 +308,7 @@ export const App: React.FC = () => {
       category: 'Safety Emergency',
       severity: 'critical',
       title: '🚨 MISSED CHECK-IN SOS: Passenger Alert (Alex Rivera)',
-      details: `Automated 2-Tier Escalation: Passenger failed to respond to safety check-in warning along West Campus Safe Corridor near ${step.fromName}. Trusted emergency contact Sarah Jenkins (+1 555-234-5678) notified via SMS & Push. Immediate campus security escort dispatch requested.`,
+      details: `Automated 2-Tier Escalation: Passenger failed to respond to safety check-in warning near ${step.fromName}. Trusted emergency contacts notified. Immediate campus security escort dispatch requested.`,
       impact: 'Cruiser #12 dispatched (Officer J. Miller). Monitored via Operator Command Desk.',
     };
     const updated = TransitService.addCommunityReport(escalationReport);
@@ -260,7 +329,7 @@ export const App: React.FC = () => {
   const activeReportsCount = reports.filter(r => r.status !== 'resolved').length;
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
+    <div className="min-h-screen text-slate-100 flex flex-col font-sans selection:bg-emerald-500 selection:text-white">
       {/* 1. Global Shell Navigation */}
       <Navbar
         currentTab={currentTab === 'journey' ? 'planner' : currentTab}
@@ -327,12 +396,11 @@ export const App: React.FC = () => {
           <RoutePlanner
             stops={stops}
             presets={presets}
-            originId={originId}
-            destId={destId}
-            onChangeOrigin={setOriginId}
-            onChangeDest={setDestId}
+            originPoint={originPoint}
+            destPoint={destPoint}
+            onChangeOriginPoint={setOriginPoint}
+            onChangeDestPoint={setDestPoint}
             onSwapLocations={handleSwapLocations}
-            onCalculateRoutes={() => runRouteCalculation(originId, destId, preferences)}
             onSelectPreset={handleSelectPreset}
             routes={routes}
             selectedRoute={selectedRoute}
@@ -344,6 +412,38 @@ export const App: React.FC = () => {
             onOpenReportModal={() => handleOpenReport()}
             onReportStop={stopId => handleOpenReport(stopId)}
             onStartJourney={handleStartJourney}
+            reports={reports}
+          />
+        ) : currentTab === 'gridpulse' ? (
+          <GridPulsePanel
+            reports={reports}
+            stops={stops}
+            onResolveReport={handleResolveReport}
+            onAddNewReport={handleOpenReport}
+          />
+        ) : currentTab === 'ocr' ? (
+          <ScanReportPanel
+            stops={stops}
+            onApplyReport={async rep => {
+              if (rep.title && rep.type && rep.severity) {
+                await handleReportSubmitted(rep as any);
+                setCurrentTab('gridpulse');
+              }
+            }}
+          />
+        ) : currentTab === 'sync' ? (
+          <SyncPanel
+            onNavigateRoute={(orig, dst) => {
+              setOriginPoint(orig);
+              setDestPoint(dst);
+              setCurrentTab('planner');
+            }}
+            onSosBroadcast={msg => {
+              setBroadcastBanner({
+                title: '🚨 LOCAL EMERGENCY SOS BROADCAST',
+                message: msg,
+              });
+            }}
           />
         ) : currentTab === 'insights' ? (
           <InsightsPanel stops={stops} lines={lines} />
@@ -392,7 +492,7 @@ export const App: React.FC = () => {
       <footer className="bg-slate-900 border-t border-slate-800/80 py-6 text-center text-xs text-slate-400">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center space-x-2">
-            <span>🦼 AccessRide Navigator</span>
+            <span>🦼 AccessRide Navigator Pro</span>
             <span>•</span>
             <span>WCAG 2.1 AAA Compliant Design System</span>
           </div>

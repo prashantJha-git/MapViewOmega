@@ -1,17 +1,25 @@
-import React from 'react';
-import { TransitStop, RouteCandidate, UserPreferences, QuickPreset } from '../types/transit';
+import React, { useState } from 'react';
+import {
+  TransitStop,
+  RouteCandidate,
+  UserPreferences,
+  QuickPreset,
+  TripPoint,
+  PickPointMode,
+  CommunityReport,
+} from '../types/transit';
 import { RouteCard } from './RouteCard';
 import { MapView } from './MapView';
+import { GlobalSyncStore } from '../features/sync/syncStore';
 
 interface RoutePlannerProps {
   stops: TransitStop[];
   presets: QuickPreset[];
-  originId: string;
-  destId: string;
-  onChangeOrigin: (id: string) => void;
-  onChangeDest: (id: string) => void;
+  originPoint: TripPoint;
+  destPoint: TripPoint;
+  onChangeOriginPoint: (point: TripPoint) => void;
+  onChangeDestPoint: (point: TripPoint) => void;
   onSwapLocations: () => void;
-  onCalculateRoutes: () => void;
   onSelectPreset: (preset: QuickPreset) => void;
   routes: RouteCandidate[];
   selectedRoute: RouteCandidate | null;
@@ -23,17 +31,17 @@ interface RoutePlannerProps {
   onOpenReportModal?: () => void;
   onReportStop?: (stopId: string) => void;
   onStartJourney?: (route: RouteCandidate) => void;
+  reports?: CommunityReport[];
 }
 
 export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   stops,
   presets,
-  originId,
-  destId,
-  onChangeOrigin,
-  onChangeDest,
+  originPoint,
+  destPoint,
+  onChangeOriginPoint,
+  onChangeDestPoint,
   onSwapLocations,
-  onCalculateRoutes,
   onSelectPreset,
   routes,
   selectedRoute,
@@ -45,7 +53,50 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
   onOpenReportModal,
   onReportStop,
   onStartJourney,
+  reports = [],
 }) => {
+  const [pickMode, setPickMode] = useState<PickPointMode>('none');
+  const [saveSuccess, setSaveSuccess] = useState<boolean>(false);
+
+  const handleOriginStopChange = (stopId: string) => {
+    const matched = stops.find(s => s.id === stopId);
+    if (matched) {
+      onChangeOriginPoint({
+        type: 'stop',
+        id: matched.id,
+        name: matched.name,
+        lat: matched.lat,
+        lng: matched.lng,
+      });
+    }
+  };
+
+  const handleDestStopChange = (stopId: string) => {
+    const matched = stops.find(s => s.id === stopId);
+    if (matched) {
+      onChangeDestPoint({
+        type: 'stop',
+        id: matched.id,
+        name: matched.name,
+        lat: matched.lat,
+        lng: matched.lng,
+      });
+    }
+  };
+
+  const handleSaveCurrentRoute = () => {
+    if (!selectedRoute) return;
+    GlobalSyncStore.addSavedRoute({
+      title: `${originPoint.name} ➔ ${destPoint.name}`,
+      origin: originPoint,
+      destination: destPoint,
+      profileId: preferences.profileId,
+      notes: `${selectedRoute.title} (${selectedRoute.totalDurationMin} min)`,
+    });
+    setSaveSuccess(true);
+    setTimeout(() => setSaveSuccess(false), 2500);
+  };
+
   return (
     <div className="space-y-6 pb-16 animate-fadeIn">
       {/* 1. Trip Search Card & Preferences Quick Bar */}
@@ -120,67 +171,119 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
           </div>
         </div>
 
-        {/* Origin & Destination Inputs */}
+        {/* Origin & Destination Inputs with Map Pick Triggers */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
-          {/* Origin Dropdown */}
-          <div className="md:col-span-5">
-            <label
-              htmlFor="originSelectInput"
-              className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center space-x-1"
-            >
-              <span className="text-emerald-400">📍</span>
-              <span>Starting Stop / Origin</span>
-            </label>
-            <select
-              id="originSelectInput"
-              value={originId}
-              onChange={e => onChangeOrigin(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
-            >
-              <option value="">Select origin location...</option>
-              {stops.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.code}) - {s.stepFree ? '✓ Step-Free' : '⚠️ Has Stairs'}
-                </option>
-              ))}
-            </select>
+          {/* Origin Selector / Custom Pin Display */}
+          <div className="md:col-span-5 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1">
+                <span className="text-emerald-400">📍</span>
+                <span>Starting Point</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setPickMode(pickMode === 'origin' ? 'none' : 'origin')}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors flex items-center space-x-1 ${
+                  pickMode === 'origin'
+                    ? 'bg-emerald-600 text-white border-emerald-400 animate-pulse'
+                    : 'bg-slate-800 text-emerald-300 border-emerald-700/60 hover:bg-slate-700'
+                }`}
+              >
+                <span>🗺️ Pick on Map</span>
+              </button>
+            </div>
+
+            {originPoint.type === 'custom' ? (
+              <div className="flex items-center justify-between bg-slate-950 border border-emerald-500/80 rounded-xl px-3 py-2 text-xs text-white">
+                <div className="flex items-center space-x-2 truncate">
+                  <span className="text-emerald-400">🟢</span>
+                  <span className="font-semibold truncate">{originPoint.name}</span>
+                </div>
+                <button
+                  onClick={() => handleOriginStopChange('stop_gate')}
+                  className="text-slate-400 hover:text-white text-[11px] underline ml-2 shrink-0"
+                >
+                  Change to Stop
+                </button>
+              </div>
+            ) : (
+              <select
+                value={originPoint.id || ''}
+                onChange={e => handleOriginStopChange(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
+              >
+                <option value="">Select origin stop...</option>
+                {stops.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.code}) - {s.stepFree ? '✓ Step-Free' : '⚠️ Has Stairs'}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
 
           {/* Swap Button */}
-          <div className="md:col-span-2 flex justify-center">
+          <div className="md:col-span-2 flex justify-center pb-0.5">
             <button
               type="button"
               id="swapLocationsBtn"
               onClick={onSwapLocations}
               title="Swap Origin and Destination"
-              className="w-full md:w-12 h-10 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center font-bold text-sm transition"
+              className="w-full md:w-12 h-9 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 flex items-center justify-center font-bold text-sm transition shadow"
             >
               ⇄ <span className="md:hidden ml-2">Swap Locations</span>
             </button>
           </div>
 
-          {/* Destination Dropdown */}
-          <div className="md:col-span-5">
-            <label
-              htmlFor="destSelectInput"
-              className="block text-xs font-bold uppercase tracking-wider text-slate-300 mb-1.5 flex items-center space-x-1"
-            >
-              <span className="text-blue-400">🏁</span>
-              <span>Destination Stop</span>
-            </label>
-            <select
-              id="destSelectInput"
-              value={destId}
-              onChange={e => onChangeDest(e.target.value)}
-              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-sm text-white font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
-            >
-              <option value="">Select destination location...</option>
-              {stops.map(s => (
-                <option key={s.id} value={s.id}>
-                  {s.name} ({s.code}) - {s.stepFree ? '✓ Step-Free' : '⚠️ Has Stairs'}
-                </option>
-              ))}
-            </select>
+          {/* Destination Selector / Custom Pin Display */}
+          <div className="md:col-span-5 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center space-x-1">
+                <span className="text-blue-400">🏁</span>
+                <span>Destination</span>
+              </label>
+
+              <button
+                type="button"
+                onClick={() => setPickMode(pickMode === 'destination' ? 'none' : 'destination')}
+                className={`px-2 py-0.5 rounded text-[11px] font-bold border transition-colors flex items-center space-x-1 ${
+                  pickMode === 'destination'
+                    ? 'bg-blue-600 text-white border-blue-400 animate-pulse'
+                    : 'bg-slate-800 text-blue-300 border-blue-700/60 hover:bg-slate-700'
+                }`}
+              >
+                <span>🗺️ Pick on Map</span>
+              </button>
+            </div>
+
+            {destPoint.type === 'custom' ? (
+              <div className="flex items-center justify-between bg-slate-950 border border-blue-500/80 rounded-xl px-3 py-2 text-xs text-white">
+                <div className="flex items-center space-x-2 truncate">
+                  <span className="text-blue-400">🔴</span>
+                  <span className="font-semibold truncate">{destPoint.name}</span>
+                </div>
+                <button
+                  onClick={() => handleDestStopChange('stop_lib')}
+                  className="text-slate-400 hover:text-white text-[11px] underline ml-2 shrink-0"
+                >
+                  Change to Stop
+                </button>
+              </div>
+            ) : (
+              <select
+                value={destPoint.id || ''}
+                onChange={e => handleDestStopChange(e.target.value)}
+                className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2 text-sm text-white font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition"
+              >
+                <option value="">Select destination stop...</option>
+                {stops.map(s => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} ({s.code}) - {s.stepFree ? '✓ Step-Free' : '⚠️ Has Stairs'}
+                  </option>
+                ))}
+              </select>
+            )}
           </div>
         </div>
 
@@ -192,7 +295,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
               key={preset.id}
               onClick={() => onSelectPreset(preset)}
               className={`px-3 py-1 rounded-lg font-medium border transition ${
-                originId === preset.originId && destId === preset.destId
+                originPoint.id === preset.originId && destPoint.id === preset.destId
                   ? 'bg-emerald-950 text-emerald-300 border-emerald-600'
                   : 'bg-slate-800/60 text-slate-300 border-slate-700 hover:bg-slate-800'
               }`}
@@ -209,14 +312,24 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
         <div className="lg:col-span-6 space-y-4">
           <div className="flex items-center justify-between">
             <div>
-              <h3 className="text-lg font-bold text-white">Ranked Route Options</h3>
+              <h3 className="text-lg font-bold text-white">Ranked Door-to-Door Routes</h3>
               <p className="text-xs text-slate-400">
-                Ordered by your personalized accessibility, comfort & safety score
+                Door-to-door multi-modal routes with first/last mile OSRM walking paths
               </p>
             </div>
-            <span className="text-xs font-bold px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">
-              {routes.length} Available Routes
-            </span>
+            <div className="flex items-center space-x-2">
+              {selectedRoute && (
+                <button
+                  onClick={handleSaveCurrentRoute}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-600/40 transition-colors"
+                >
+                  {saveSuccess ? '✓ Route Saved!' : '⭐ Sync Route'}
+                </button>
+              )}
+              <span className="text-xs font-bold px-2.5 py-1 rounded bg-slate-800 text-slate-300 border border-slate-700">
+                {routes.length} Options
+              </span>
+            </div>
           </div>
 
           {/* List of Route Cards */}
@@ -238,7 +351,7 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
                 <span className="text-3xl block mb-2">🔍</span>
                 <h4 className="text-sm font-bold text-white">No routes found</h4>
                 <p className="text-xs text-slate-400 mt-1">
-                  Please select an origin and destination location from the controls above.
+                  Please tap locations on the map or select stops from the controls above.
                 </p>
               </div>
             )}
@@ -250,9 +363,14 @@ export const RoutePlanner: React.FC<RoutePlannerProps> = ({
           <MapView
             stops={stops}
             selectedRoute={selectedRoute}
-            onSetOrigin={onChangeOrigin}
-            onSetDest={onChangeDest}
+            originPoint={originPoint}
+            destPoint={destPoint}
+            onSelectOriginPoint={onChangeOriginPoint}
+            onSelectDestPoint={onChangeDestPoint}
+            pickMode={pickMode}
+            onSetPickMode={setPickMode}
             onReportStop={onReportStop}
+            reports={reports}
           />
         </div>
       </div>

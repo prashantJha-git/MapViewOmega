@@ -203,3 +203,134 @@ export interface FleetVehicle {
   lastPingTime: string;
   emergencySosActive: boolean;
 }
+
+// -------------------------------------------------------------
+// Dynamic Routing & Any-Two-Points Models
+// -------------------------------------------------------------
+export interface TripPoint {
+  type: 'stop' | 'custom';
+  id?: string; // Stop ID if type === 'stop'
+  name: string; // Display label (e.g., "Library Stop" or "42.3601, -71.0942" or address)
+  lat: number;
+  lng: number;
+  address?: string;
+  isGpsLocation?: boolean;
+}
+
+export type PickPointMode = 'none' | 'origin' | 'destination';
+
+// -------------------------------------------------------------
+// GridPulse & Geofence Safety Models
+// -------------------------------------------------------------
+export type Severity = 'critical' | 'high' | 'medium' | 'low';
+export type TileLayerId = 'osm' | 'voyager' | 'dark' | 'satellite';
+export type IncidentCategory =
+  | 'medical'
+  | 'fire'
+  | 'harassment'
+  | 'unsafe_area'
+  | 'infrastructure'
+  | 'lighting'
+  | 'obstruction'
+  | 'other';
+
+export interface LatLng {
+  lat: number;
+  lng: number;
+}
+
+export interface GeofenceZone {
+  id: string;
+  label: string;
+  color: string;
+  coords: [number, number][]; // Polygon vertices [lat, lng]
+  desc: string;
+  dangerLevel?: 'safe' | 'caution' | 'warning' | 'hazard';
+}
+
+export interface MapIncidentPin {
+  id: string;
+  title: string;
+  category: IncidentCategory;
+  severity: Severity;
+  lat: number;
+  lng: number;
+  status: 'active' | 'in_progress' | 'resolved';
+  description?: string;
+  reportedAt: string;
+  claimedBy?: string;
+  zoneId?: string;
+}
+
+export interface AlertRecord {
+  id: string;
+  zoneId: string;
+  zoneName: string;
+  incidentTitle?: string;
+  severity: Severity;
+  distanceMeters: number;
+  message: string;
+  timestamp: string;
+  acknowledged?: boolean;
+}
+
+// -------------------------------------------------------------
+// OCR Barrier Scanner Models
+// -------------------------------------------------------------
+export interface OCRBarrierResult {
+  rawText: string;
+  detectedCategory: ReportType;
+  categoryLabel: ReportCategory;
+  severity: ReportSeverity;
+  title: string;
+  details: string;
+  suggestedImpact: string;
+  confidenceScore: number;
+  matchedKeywords: string[];
+  suggestedStepFreeImpact: boolean;
+  suggestedLightingImpact: boolean;
+}
+
+// -------------------------------------------------------------
+// Multi-Device WebRTC Sync Models
+// -------------------------------------------------------------
+export interface SyncedRoute {
+  id: string;
+  title: string;
+  origin: TripPoint;
+  destination: TripPoint;
+  savedAt: string;
+  profileId: ProfileId;
+  notes?: string;
+}
+
+export interface SyncEmergencyContact {
+  id: string;
+  name: string;
+  relationship: string;
+  phone: string;
+  isPrimary: boolean;
+}
+
+export interface SyncedState {
+  version: number;
+  deviceId: string;
+  deviceName: string;
+  updatedAt: string;
+  savedRoutes: SyncedRoute[];
+  emergencyContacts: SyncEmergencyContact[];
+  preferences: UserPreferences;
+  activeJourneyRoute: RouteCandidate | null;
+  reports: CommunityReport[];
+}
+
+export interface SyncLogEntry {
+  id: string;
+  timestamp: string;
+  peerId: string;
+  direction: 'sent' | 'received';
+  action: 'offer' | 'answer' | 'full_sync' | 'delta_sync' | 'sos_beacon';
+  details: string;
+  status: 'success' | 'pending' | 'failed';
+}
+
